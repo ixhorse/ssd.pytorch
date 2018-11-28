@@ -2,6 +2,7 @@ import torch
 from torch.autograd import Function
 from ..box_utils import decode, nms
 from data import voc as cfg
+import pdb
 
 
 class Detect(Function):
@@ -46,8 +47,9 @@ class Detect(Function):
             for cl in range(1, self.num_classes):
                 c_mask = conf_scores[cl].gt(self.conf_thresh)
                 scores = conf_scores[cl][c_mask]
-                if scores.dim() == 0:
+                if scores.size() == torch.Size([0]):
                     continue
+                # pdb.set_trace()
                 l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
                 boxes = decoded_boxes[l_mask].view(-1, 4)
                 # idx of highest scoring and non-overlapping boxes per class

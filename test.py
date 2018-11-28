@@ -52,7 +52,7 @@ def test_net(save_folder, net, cuda, testset, transform, thresh):
                 f.write('label: '+' || '.join(str(b) for b in box)+'\n')
         if cuda:
             x = x.cuda()
-
+        
         y = net(x)      # forward pass
         detections = y.data
         # scale each detection back up to the image

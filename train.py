@@ -14,6 +14,7 @@ import torch.nn.init as init
 import torch.utils.data as data
 import numpy as np
 import argparse
+import pdb
 
 
 def str2bool(v):
@@ -162,11 +163,16 @@ def train():
             adjust_learning_rate(optimizer, args.gamma, step_index)
 
         # load train data
-        images, targets = next(batch_iterator)
+        try:
+            images, targets = next(batch_iterator)
+        except StopIteration:
+            batch_iterator = iter(data_loader)
+            images, targets = next(batch_iterator)
 
         if args.cuda:
             images = Variable(images.cuda())
-            targets = [Variable(ann.cuda(), volatile=True) for ann in targets]
+            with torch.no_grad():
+                targets = [Variable(ann.cuda()) for ann in targets]
         else:
             images = Variable(images)
             targets = [Variable(ann, volatile=True) for ann in targets]
@@ -180,12 +186,14 @@ def train():
         loss.backward()
         optimizer.step()
         t1 = time.time()
-        loc_loss += loss_l.data[0]
-        conf_loss += loss_c.data[0]
+        # if loss_l.dim() == 0:
+        #     pdb.set_trace()
+        loc_loss += loss_l.item()
+        conf_loss += loss_c.item()
 
         if iteration % 10 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data[0]), end=' ')
+            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
 
         if args.visdom:
             update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
@@ -211,7 +219,7 @@ def adjust_learning_rate(optimizer, gamma, step):
 
 
 def xavier(param):
-    init.xavier_uniform(param)
+    init.xavier_uniform_(param)
 
 
 def weights_init(m):
