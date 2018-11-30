@@ -7,14 +7,15 @@ FLAG=$1
 # Set up the working directories.
 VOC_ROOT="${HOME}/data/VOCdevkit"
 COCO_ROOT="${HOME}/data/COCO"
+TT100K_ROOT="${HOME}/data/TT100K/TT100K_chip_voc"
 
 echo $FLAG
 if [ 1 == $FLAG ] 
 then
     echo "====train===="
     python train.py \
-        --dataset="VOC" \
-        --dataset_root="${VOC_ROOT}" \
+        --dataset="TT100K" \
+        --dataset_root="${TT100K_ROOT}" \
         --batch_size=32 \
         --start_iter=0 \
         --num_workers=4 \
