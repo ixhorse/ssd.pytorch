@@ -27,8 +27,9 @@ elif [ 2 == $FLAG ]
 then
     echo "====test===="
     python test.py \
-        --trained_model="weights/ssd300_mAP_77.43_v2.pth" \
-        --voc_root="${VOC_ROOT}"
+        --dataset="TT100K" \
+        --dataset_root="${TT100K_ROOT}" \
+        --trained_model="weights/TT100K.pth"
 elif [ 3 == $FLAG ]
 then
     echo "====eval===="

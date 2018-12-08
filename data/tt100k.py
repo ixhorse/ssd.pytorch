@@ -175,3 +175,9 @@ class TT100KDetection(data.Dataset):
             tensorized version of img, squeezed
         '''
         return torch.Tensor(self.pull_image(index)).unsqueeze_(0)
+
+    def pull_id(self, index):
+        """Returns the original image name
+        """
+        img_id = self.ids[index]
+        return img_id[1]
