@@ -45,9 +45,11 @@ if not os.path.exists(args.save_folder):
     os.mkdir(args.save_folder)
 
 
-def _visdetection(image, detections):
-    for box in detections:
+def _visdetection(image, detections, labels):
+    detections = np.array(detections).astype(np.int32)
+    for box, label in zip(detections, labels):
         cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), 100, 2)
+        cv2.putText(image, label, (box[0], box[1]), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 255, 0), 1)
     plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     plt.show()
 
@@ -69,13 +71,14 @@ def test_net(net, cuda, testset, labelmap, transform, thresh):
     # dump predictions and assoc. ground truth to text file for now
     results = dict()
     num_images = len(testset)
-    for i in tqdm(range(num_images)):
+    for idx in tqdm(range(num_images)):
         if 'TT100K' in testset.name:
-            img_id = testset.pull_id(i)
+            img_id = testset.pull_id(idx)
         else:
-            img_id, _ = testset.pull_anno(i)
+            img_id, _ = testset.pull_anno(idx)
 
-        img = testset.pull_image(i)
+        img = testset.pull_image(idx)
+        # [h, w, c] -> [c, h, w]
         x = torch.from_numpy(transform(img)[0]).permute(2, 0, 1)
         x = Variable(x.unsqueeze(0))
         if cuda:
@@ -84,25 +87,23 @@ def test_net(net, cuda, testset, labelmap, transform, thresh):
         y = net(x)      # forward pass
         detections = y.data
         # scale each detection back up to the image
-        scale = torch.Tensor([img.shape[1], img.shape[0],
+        scale = np.array([img.shape[1], img.shape[0],
                              img.shape[1], img.shape[0]])
-        pred_num = 0
         pred_box = []
         pred_score = []
         pred_label = []
         for i in range(detections.size(1)):
             j = 0
-            while detections[0, i, j, 0] >= 0.01:
+            while detections[0, i, j, 0] > 0:
                 score = detections[0, i, j, 0].cpu().numpy()
                 label_name = labelmap[i-1]
-                pt = (detections[0, i, j, 1:]*scale).cpu().numpy()
+                pt = (detections[0, i, j, 1:]).cpu().numpy() * scale
                 coords = (pt[0], pt[1], pt[2], pt[3])
-                pred_num += 1
                 pred_box.append(coords)
                 pred_score.append(score)
                 pred_label.append(label_name)
                 j += 1
-        # _visdetection(img, pred_box)
+        # _visdetection(img, pred_box, pred_label)
         # cv2.waitKey(0)
         results[img_id] = {'pred_box': pred_box,
                            'pred_score': pred_score,
