@@ -199,7 +199,8 @@ def train():
 
         if iteration % 10 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
+            print('iter ' + repr(iteration) + ' || loc_l: %.4f || conf_l: %.4f' \
+                    % (loss_l.item(), loss_c.item()), end=' ')
 
         if args.visdom:
             update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
@@ -225,7 +226,8 @@ def adjust_learning_rate(optimizer, gamma, step):
 
 
 def xavier(param):
-    init.xavier_uniform_(param)
+    # init.xavier_uniform_(param)
+    init.xavier_normal_(param)
 
 
 def weights_init(m):

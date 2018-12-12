@@ -424,11 +424,11 @@ class TT100KAugmentation(object):
             ConvertFromInts(),
             ToAbsoluteCoords(),
             PhotometricDistort(),
-            # Expand(self.mean),
-            # RandomSampleCrop(),
+            Expand(self.mean),
+            RandomSampleCrop(),
             RandomMirror(),
             ToPercentCoords(),
-            # Resize(self.size),
+            Resize(self.size),
             SubtractMeans(self.mean)
         ])
 

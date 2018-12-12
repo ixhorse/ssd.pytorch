@@ -29,7 +29,7 @@ then
     python test.py \
         --dataset="TT100K" \
         --dataset_root="${TT100K_ROOT}" \
-        --trained_model="weights/TT100K.pth"
+        --trained_model="weights/TT100K-new.pth"
 elif [ 3 == $FLAG ]
 then
     echo "====eval===="
