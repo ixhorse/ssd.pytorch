@@ -1,7 +1,7 @@
 from data import *
 from utils.augmentations import SSDAugmentation, TT100KAugmentation
 from layers.modules import MultiBoxLoss
-from ssd import build_ssd
+from models import ssd, fusion_ssd
 import os
 import sys
 import time
@@ -24,6 +24,8 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Training With Pytorch')
 train_set = parser.add_mutually_exclusive_group()
+parser.add_argument('--network', default='SSD', choices=['SSD', 'FusionSSD'],
+                    type=str, help='SSD , FusionSSD')
 parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO', 'TT100K'],
                     type=str, help='VOC or COCO')
 parser.add_argument('--dataset_root', default=VOC_ROOT,
@@ -79,28 +81,23 @@ def train():
             args.dataset_root = COCO_ROOT
         cfg = coco
         dataset = COCODetection(root=args.dataset_root,
-                                transform=SSDAugmentation(cfg['min_dim'],
-                                                          MEANS))
+                                transform=SSDAugmentation(cfg['min_dim'], MEANS))
     elif args.dataset == 'VOC':
         if args.dataset_root == COCO_ROOT:
             parser.error('Must specify dataset if specifying dataset_root')
         cfg = voc
         dataset = VOCDetection(root=args.dataset_root,
-                               transform=SSDAugmentation(cfg['min_dim'],
-                                                         MEANS))
-
+                               transform=SSDAugmentation(cfg['min_dim'], MEANS))
     elif args.dataset == 'TT100K':
         cfg = tt100k
         dataset = TT100KDetection(root=args.dataset_root,
-                               transform=TT100KAugmentation(cfg['min_dim'],
-                                                         MEANS))
+                               transform=TT100KAugmentation(cfg['min_dim'], MEANS))
 
-    if args.visdom:
-        import visdom
-        viz = visdom.Visdom()
+    if args.network == 'SSD':
+        ssd_net = ssd.build_net('train', cfg['min_dim'], cfg['num_classes'])
+    elif args.network == 'FusionSSD':
+        ssd_net = fusion_ssd.build_net('train', cfg['min_dim'], cfg['num_classes'])
 
-    ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'])
-    net = ssd_net
 
     if args.cuda:
         net = torch.nn.DataParallel(ssd_net)
@@ -123,6 +120,8 @@ def train():
         ssd_net.extras.apply(weights_init)
         ssd_net.loc.apply(weights_init)
         ssd_net.conf.apply(weights_init)
+        if args.network == "FusionSSD":
+            ssd_net.fusion.apply(weights_init)
 
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum,
                           weight_decay=args.weight_decay)
@@ -131,8 +130,6 @@ def train():
 
     net.train()
     # loss counters
-    loc_loss = 0
-    conf_loss = 0
     epoch = 0
     print('Loading the dataset...')
 
@@ -143,12 +140,6 @@ def train():
 
     step_index = 0
 
-    if args.visdom:
-        vis_title = 'SSD.PyTorch on ' + dataset.name
-        vis_legend = ['Loc Loss', 'Conf Loss', 'Total Loss']
-        iter_plot = create_vis_plot('Iteration', 'Loss', vis_title, vis_legend)
-        epoch_plot = create_vis_plot('Epoch', 'Loss', vis_title, vis_legend)
-
     data_loader = data.DataLoader(dataset, args.batch_size,
                                   num_workers=args.num_workers,
                                   shuffle=True, collate_fn=detection_collate,
@@ -156,13 +147,6 @@ def train():
     # create batch iterator
     batch_iterator = iter(data_loader)
     for iteration in range(args.start_iter, cfg['max_iter']):
-        if args.visdom and iteration != 0 and (iteration % epoch_size == 0):
-            update_vis_plot(epoch, loc_loss, conf_loss, epoch_plot, None,
-                            'append', epoch_size)
-            # reset epoch loss counters
-            loc_loss = 0
-            conf_loss = 0
-            epoch += 1
 
         if iteration in cfg['lr_steps']:
             step_index += 1
@@ -194,17 +178,11 @@ def train():
         t1 = time.time()
         # if loss_l.dim() == 0:
         #     pdb.set_trace()
-        loc_loss += loss_l.item()
-        conf_loss += loss_c.item()
 
         if iteration % 10 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
             print('iter ' + repr(iteration) + ' || loc_l: %.4f || conf_l: %.4f' \
                     % (loss_l.item(), loss_c.item()), end=' ')
-
-        if args.visdom:
-            update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
-                            iter_plot, epoch_plot, 'append')
 
         if iteration != 0 and iteration % 5000 == 0:
             print('Saving state, iter:', iteration)
@@ -234,37 +212,15 @@ def weights_init(m):
     if isinstance(m, nn.Conv2d):
         xavier(m.weight.data)
         m.bias.data.zero_()
-
-
-def create_vis_plot(_xlabel, _ylabel, _title, _legend):
-    return viz.line(
-        X=torch.zeros((1,)).cpu(),
-        Y=torch.zeros((1, 3)).cpu(),
-        opts=dict(
-            xlabel=_xlabel,
-            ylabel=_ylabel,
-            title=_title,
-            legend=_legend
-        )
-    )
-
-
-def update_vis_plot(iteration, loc, conf, window1, window2, update_type,
-                    epoch_size=1):
-    viz.line(
-        X=torch.ones((1, 3)).cpu() * iteration,
-        Y=torch.Tensor([loc, conf, loc + conf]).unsqueeze(0).cpu() / epoch_size,
-        win=window1,
-        update=update_type
-    )
-    # initialize epoch plot on first iteration
-    if iteration == 0:
-        viz.line(
-            X=torch.zeros((1, 3)).cpu(),
-            Y=torch.Tensor([loc, conf, loc + conf]).unsqueeze(0).cpu(),
-            win=window2,
-            update=True
-        )
+# def weights_init(m):
+#     for key in m.state_dict():
+#         if key.split('.')[-1] == 'weight':
+#             if 'conv' in key:
+#                 init.xavier_normal_(m.state_dict()[key])
+#             if 'bn' in key:
+#                 m.state_dict()[key][...] = 1
+#         elif key.split('.')[-1] == 'bias':
+#             m.state_dict()[key][...] = 0
 
 
 if __name__ == '__main__':

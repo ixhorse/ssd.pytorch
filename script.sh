@@ -14,8 +14,9 @@ if [ 1 == $FLAG ]
 then
     echo "====train===="
     python train.py \
-        --dataset="TT100K" \
-        --dataset_root="${TT100K_ROOT}" \
+        --network="FusionSSD" \
+        --dataset="VOC" \
+        --dataset_root="${VOC_ROOT}" \
         --batch_size=32 \
         --start_iter=0 \
         --num_workers=4 \
@@ -29,7 +30,7 @@ then
     python test.py \
         --dataset="TT100K" \
         --dataset_root="${TT100K_ROOT}" \
-        --trained_model="weights/TT100K-new.pth"
+        --trained_model="weights/TT100K-z.pth"
 elif [ 3 == $FLAG ]
 then
     echo "====eval===="

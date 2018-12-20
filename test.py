@@ -103,8 +103,8 @@ def test_net(net, cuda, testset, labelmap, transform, thresh):
                 pred_score.append(score)
                 pred_label.append(label_name)
                 j += 1
-        # _visdetection(img, pred_box, pred_label)
-        # cv2.waitKey(0)
+        _visdetection(img, pred_box, pred_label)
+        cv2.waitKey(0)
         results[img_id] = {'pred_box': pred_box,
                            'pred_score': pred_score,
                            'pred_label': pred_label}

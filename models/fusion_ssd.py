@@ -6,8 +6,52 @@ from layers import *
 from data import voc, coco, tt100k
 import os
 
+import pprint
 
-class SSD(nn.Module):
+class BasicConv(nn.Module):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
+        super(BasicConv, self).__init__()
+        self.out_channels = out_planes
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes,eps=1e-5, momentum=0.01, affine=True) if bn else None
+        self.relu = nn.ReLU(inplace=True) if relu else None
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.bn is not None:
+            x = self.bn(x)
+        if self.relu is not None:
+            x = self.relu(x)
+        return x
+
+class FusionModule(nn.Module):
+    """
+    "Feature-fused SSD: fast detection for small objects"
+    """
+    def __init__(self, inplanes_1, inplanes_2, outplanes):
+        super(FusionModule, self).__init__()
+        # attached to conv4_3
+        self.branch1 = BasicConv(inplanes_1, outplanes, kernel_size=3, padding=1)
+        # attached to conv5_3
+        # self.deconv = nn.ConvTranspose2d(inplanes_2, outplanes, kernel_size=3, stride=2, padding=1)
+        self.deconv = nn.Upsample(scale_factor=2, mode='bilinear')
+        self.branch2 = BasicConv(outplanes, outplanes, kernel_size=3, padding=1)
+
+        self.fusion = BasicConv(outplanes*2, outplanes, kernel_size=1, bn=False)
+
+    def forward(self, conv4_3, conv5_3):
+        x1 = self.branch1(conv4_3)
+        # x2 = self.branch2(self.deconv(conv5_3, output_size=conv4_3.size()))
+        x2 = self.branch2(self.deconv(conv5_3))
+
+        x = torch.cat((x1, x2), 1)
+        out = self.fusion(x)
+
+        return out
+
+
+
+class FusionSSD(nn.Module):
     """Single Shot Multibox Architecture
     The network is composed of a base VGG network followed by the
     added multibox conv layers.  Each multibox layer branches into
@@ -26,7 +70,7 @@ class SSD(nn.Module):
     """
 
     def __init__(self, phase, size, base, extras, head, num_classes):
-        super(SSD, self).__init__()
+        super(FusionSSD, self).__init__()
         self.phase = phase
         self.num_classes = num_classes
         if num_classes == 21:
@@ -43,7 +87,7 @@ class SSD(nn.Module):
         # SSD network
         self.vgg = nn.ModuleList(base)
         # Layer learns to scale the l2 normalized features from conv4_3
-        self.L2Norm = L2Norm(512, 20)
+        self.fusion = FusionModule(512, 512, 512)
         self.extras = nn.ModuleList(extras)
 
         self.loc = nn.ModuleList(head[0])
@@ -79,12 +123,18 @@ class SSD(nn.Module):
         # apply vgg up to conv4_3 relu
         for k in range(23):
             x = self.vgg[k](x)
+        conv4_3 = x
 
-        s = self.L2Norm(x)
+        # apply vgg up to conv5_3 relu
+        for k in range(23, 30):
+            x = self.vgg[k](x)
+        conv5_3 = x
+
+        s = self.fusion(conv4_3, conv5_3)
         sources.append(s)
 
         # apply vgg up to fc7
-        for k in range(23, len(self.vgg)):
+        for k in range(30, len(self.vgg)):
             x = self.vgg[k](x)
         sources.append(x)
 
@@ -149,6 +199,7 @@ def vgg(cfg, i, batch_norm=False):
     conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
     layers += [pool5, conv6,
                nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=True)]
+    # pprint.pprint(layers)
     return layers
 
 
@@ -201,7 +252,7 @@ mbox = {
 }
 
 
-def build_ssd(phase, size=300, num_classes=21):
+def build_net(phase, size=300, num_classes=21):
     if phase != "test" and phase != "train":
         print("ERROR: Phase: " + phase + " not recognized")
         return
@@ -212,4 +263,4 @@ def build_ssd(phase, size=300, num_classes=21):
     base_, extras_, head_ = multibox(vgg(base[str(size)], 3),
                                      add_extras(extras[str(size)], 1024),
                                      mbox[str(size)], num_classes)
-    return SSD(phase, size, base_, extras_, head_, num_classes)
+    return FusionSSD(phase, size, base_, extras_, head_, num_classes)
