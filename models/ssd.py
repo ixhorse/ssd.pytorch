@@ -151,7 +151,6 @@ def vgg(cfg, i, batch_norm=False):
     conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
     layers += [pool5, conv6,
                nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=True)]
-    pprint.pprint(layers)
     return layers
 
 

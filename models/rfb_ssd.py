@@ -24,6 +24,54 @@ class BasicConv(nn.Module):
             x = self.relu(x)
         return x
 
+class BasicRFB_a(nn.Module):
+
+    def __init__(self, in_planes, out_planes, stride=1, scale = 0.1):
+        super(BasicRFB_a, self).__init__()
+        self.scale = scale
+        self.out_channels = out_planes
+        inter_planes = in_planes //4
+
+
+        self.branch0 = nn.Sequential(
+                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
+                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1,relu=False)
+                )
+        self.branch1 = nn.Sequential(
+                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
+                BasicConv(inter_planes, inter_planes, kernel_size=(3,1), stride=1, padding=(1,0)),
+                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
+                )
+        self.branch2 = nn.Sequential(
+                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
+                BasicConv(inter_planes, inter_planes, kernel_size=(1,3), stride=stride, padding=(0,1)),
+                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
+                )
+        self.branch3 = nn.Sequential(
+                BasicConv(in_planes, inter_planes//2, kernel_size=1, stride=1),
+                BasicConv(inter_planes//2, (inter_planes//4)*3, kernel_size=(1,3), stride=1, padding=(0,1)),
+                BasicConv((inter_planes//4)*3, inter_planes, kernel_size=(3,1), stride=stride, padding=(1,0)),
+                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False)
+                )
+
+        self.ConvLinear = BasicConv(4*inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
+        self.relu = nn.ReLU(inplace=False)
+
+    def forward(self,x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        x2 = self.branch2(x)
+        x3 = self.branch3(x)
+
+        out = torch.cat((x0,x1,x2,x3),1)
+        out = self.ConvLinear(out)
+        short = self.shortcut(x)
+        out = out*self.scale + short
+        out = self.relu(out)
+
+        return out
+
 class FusionModule(nn.Module):
     """
     "Feature-fused SSD: fast detection for small objects"
@@ -51,7 +99,7 @@ class FusionModule(nn.Module):
 
 
 
-class FusionSSD(nn.Module):
+class RFBSSD(nn.Module):
     """Single Shot Multibox Architecture
     The network is composed of a base VGG network followed by the
     added multibox conv layers.  Each multibox layer branches into
@@ -88,6 +136,8 @@ class FusionSSD(nn.Module):
         self.vgg = nn.ModuleList(base)
         # Layer learns to scale the l2 normalized features from conv4_3
         self.fusion = FusionModule(512, 512, 512)
+        self.rfb = BasicRFB_a(512, 512, stride=1, scale=1.0)
+
         self.extras = nn.ModuleList(extras)
 
         self.loc = nn.ModuleList(head[0])
@@ -131,6 +181,7 @@ class FusionSSD(nn.Module):
         conv5_3 = x
 
         s = self.fusion(conv4_3, conv5_3)
+        s = self.rfb(s)
         sources.append(s)
 
         # apply vgg up to fc7
@@ -263,4 +314,4 @@ def build_net(phase, size=300, num_classes=21):
     base_, extras_, head_ = multibox(vgg(base[str(size)], 3),
                                      add_extras(extras[str(size)], 1024),
                                      mbox[str(size)], num_classes)
-    return FusionSSD(phase, size, base_, extras_, head_, num_classes)
+    return RFBSSD(phase, size, base_, extras_, head_, num_classes)
