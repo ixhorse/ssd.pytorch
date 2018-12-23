@@ -13,7 +13,7 @@ from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
 from data import VOC_CLASSES as labelmap
 import torch.utils.data as data
 
-from ssd import build_ssd
+from models import ssd, fusion_ssd, rfb_ssd
 
 import sys
 import os
@@ -22,6 +22,7 @@ import argparse
 import numpy as np
 import pickle
 import cv2
+from tqdm import tqdm
 import pdb
 
 if sys.version_info[0] == 2:
@@ -36,6 +37,8 @@ def str2bool(v):
 
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Evaluation')
+parser.add_argument('--network', default='SSD', choices=['SSD', 'FusionSSD', 'RFB'],
+                    type=str, help='SSD , FusionSSD')
 parser.add_argument('--trained_model',
                     default='weights/ssd300_mAP_77.43_v2.pth', type=str,
                     help='Trained state_dict file path to open')
@@ -376,7 +379,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     output_dir = get_output_dir('ssd300_120000', set_type)
     det_file = os.path.join(output_dir, 'detections.pkl')
 
-    for i in range(num_images):
+    for i in tqdm(range(num_images)):
         im, gt, h, w = dataset.pull_item(i)
 
         x = Variable(im.unsqueeze(0))
@@ -404,8 +407,8 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
                                                                  copy=False)
             all_boxes[j][i] = cls_dets
 
-        print('im_detect: {:d}/{:d} {:.3f}s'.format(i + 1,
-                                                    num_images, detect_time))
+        # print('im_detect: {:d}/{:d} {:.3f}s'.format(i + 1,
+        #                                             num_images, detect_time))
 
     with open(det_file, 'wb') as f:
         pickle.dump(all_boxes, f, pickle.HIGHEST_PROTOCOL)
@@ -421,8 +424,13 @@ def evaluate_detections(box_list, output_dir, dataset):
 
 if __name__ == '__main__':
     # load net
-    num_classes = len(labelmap) + 1                      # +1 for background
-    net = build_ssd('test', 300, num_classes)            # initialize SSD
+    num_classes = len(labelmap) + 1
+    if args.network == 'SSD':                      # +1 for background
+        net = ssd.build_net('test', 300, num_classes)
+    elif args.network == 'FusionSSD':
+        net = fusion_ssd.build_net('test', 300, num_classes)
+    elif args.network == 'RFB':
+        net = rfb_ssd.build_net('test', 300, num_classes)
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()
     print('Finished loading model!')

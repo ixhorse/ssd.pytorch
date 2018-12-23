@@ -9,7 +9,8 @@ import os
 import pprint
 
 class BasicConv(nn.Module):
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=True):
+
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
         self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
@@ -23,6 +24,49 @@ class BasicConv(nn.Module):
         if self.relu is not None:
             x = self.relu(x)
         return x
+
+
+class BasicRFB(nn.Module):
+
+    def __init__(self, in_planes, out_planes, stride=1, scale = 0.1, visual = 1):
+        super(BasicRFB, self).__init__()
+        self.scale = scale
+        self.out_channels = out_planes
+        inter_planes = in_planes // 8
+        self.branch0 = nn.Sequential(
+                BasicConv(in_planes, 2*inter_planes, kernel_size=1, stride=stride),
+                BasicConv(2*inter_planes, 2*inter_planes, kernel_size=3, stride=1, padding=visual, dilation=visual, relu=False)
+                )
+        self.branch1 = nn.Sequential(
+                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
+                BasicConv(inter_planes, 2*inter_planes, kernel_size=(3,3), stride=stride, padding=(1,1)),
+                BasicConv(2*inter_planes, 2*inter_planes, kernel_size=3, stride=1, padding=visual+1, dilation=visual+1, relu=False)
+                )
+        self.branch2 = nn.Sequential(
+                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
+                BasicConv(inter_planes, (inter_planes//2)*3, kernel_size=3, stride=1, padding=1),
+                BasicConv((inter_planes//2)*3, 2*inter_planes, kernel_size=3, stride=stride, padding=1),
+                BasicConv(2*inter_planes, 2*inter_planes, kernel_size=3, stride=1, padding=2*visual+1, dilation=2*visual+1, relu=False)
+                )
+
+        self.ConvLinear = BasicConv(6*inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
+        self.relu = nn.ReLU(inplace=False)
+
+    def forward(self,x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        x2 = self.branch2(x)
+
+        out = torch.cat((x0,x1,x2),1)
+        out = self.ConvLinear(out)
+        short = self.shortcut(x)
+        out = out*self.scale + short
+        out = self.relu(out)
+
+        return out
+
+
 
 class BasicRFB_a(nn.Module):
 
@@ -72,34 +116,8 @@ class BasicRFB_a(nn.Module):
 
         return out
 
-class FusionModule(nn.Module):
-    """
-    "Feature-fused SSD: fast detection for small objects"
-    """
-    def __init__(self, inplanes_1, inplanes_2, outplanes):
-        super(FusionModule, self).__init__()
-        # attached to conv4_3
-        self.branch1 = BasicConv(inplanes_1, outplanes, kernel_size=3, padding=1)
-        # attached to conv5_3
-        self.deconv = nn.ConvTranspose2d(inplanes_2, outplanes, kernel_size=3, stride=2, padding=1)
-        # self.deconv = nn.Upsample(scale_factor=2, mode='bilinear')
-        self.branch2 = BasicConv(outplanes, outplanes, kernel_size=3, padding=1)
 
-        self.fusion = BasicConv(outplanes*2, outplanes, kernel_size=1, bn=False)
-
-    def forward(self, conv4_3, conv5_3):
-        x1 = self.branch1(conv4_3)
-        x2 = self.branch2(self.deconv(conv5_3, output_size=conv4_3.size()))
-        # x2 = self.branch2(self.deconv(conv5_3))
-
-        x = torch.cat((x1, x2), 1)
-        out = self.fusion(x)
-
-        return out
-
-
-
-class RFBSSD(nn.Module):
+class RFBNet(nn.Module):
     """Single Shot Multibox Architecture
     The network is composed of a base VGG network followed by the
     added multibox conv layers.  Each multibox layer branches into
@@ -118,7 +136,7 @@ class RFBSSD(nn.Module):
     """
 
     def __init__(self, phase, size, base, extras, head, num_classes):
-        super(FusionSSD, self).__init__()
+        super(RFBNet, self).__init__()
         self.phase = phase
         self.num_classes = num_classes
         if num_classes == 21:
@@ -135,9 +153,7 @@ class RFBSSD(nn.Module):
         # SSD network
         self.vgg = nn.ModuleList(base)
         # Layer learns to scale the l2 normalized features from conv4_3
-        self.fusion = FusionModule(512, 512, 512)
-        self.rfb = BasicRFB_a(512, 512, stride=1, scale=1.0)
-
+        self.Norm = BasicRFB_a(512,512,stride = 1,scale=1.0)
         self.extras = nn.ModuleList(extras)
 
         self.loc = nn.ModuleList(head[0])
@@ -173,26 +189,18 @@ class RFBSSD(nn.Module):
         # apply vgg up to conv4_3 relu
         for k in range(23):
             x = self.vgg[k](x)
-        conv4_3 = x
 
-        # apply vgg up to conv5_3 relu
-        for k in range(23, 30):
-            x = self.vgg[k](x)
-        conv5_3 = x
-
-        s = self.fusion(conv4_3, conv5_3)
-        s = self.rfb(s)
+        s = self.Norm(x)
         sources.append(s)
 
         # apply vgg up to fc7
-        for k in range(30, len(self.vgg)):
+        for k in range(23, len(self.vgg)):
             x = self.vgg[k](x)
-        sources.append(x)
 
         # apply extra layers and cache source layer outputs
         for k, v in enumerate(self.extras):
-            x = F.relu(v(x), inplace=True)
-            if k % 2 == 1:
+            x = v(x)
+            if k < 3 or k%2 ==0:
                 sources.append(x)
 
         # apply multibox head to source layers
@@ -250,11 +258,10 @@ def vgg(cfg, i, batch_norm=False):
     conv7 = nn.Conv2d(1024, 1024, kernel_size=1)
     layers += [pool5, conv6,
                nn.ReLU(inplace=True), conv7, nn.ReLU(inplace=True)]
-    # pprint.pprint(layers)
     return layers
 
 
-def add_extras(cfg, i, batch_norm=False):
+def add_extras(size, cfg, i, batch_norm=False):
     # Extra layers added to VGG for feature scaling
     layers = []
     in_channels = i
@@ -262,29 +269,58 @@ def add_extras(cfg, i, batch_norm=False):
     for k, v in enumerate(cfg):
         if in_channels != 'S':
             if v == 'S':
-                layers += [nn.Conv2d(in_channels, cfg[k + 1],
-                           kernel_size=(1, 3)[flag], stride=2, padding=1)]
+                if in_channels == 256 and size == 512:
+                    layers += [BasicRFB(in_channels, cfg[k+1], stride=2, scale = 1.0, visual=1)]
+                else:
+                    layers += [BasicRFB(in_channels, cfg[k+1], stride=2, scale = 1.0, visual=2)]
             else:
-                layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
-            flag = not flag
+                layers += [BasicRFB(in_channels, v, scale = 1.0, visual=2)]
         in_channels = v
+    if size == 512:
+        layers += [BasicConv(256,128,kernel_size=1,stride=1)]
+        layers += [BasicConv(128,256,kernel_size=4,stride=1,padding=1)]
+    elif size ==300:
+        layers += [BasicConv(256,128,kernel_size=1,stride=1)]
+        layers += [BasicConv(128,256,kernel_size=3,stride=1)]
+        layers += [BasicConv(256,128,kernel_size=1,stride=1)]
+        layers += [BasicConv(128,256,kernel_size=3,stride=1)]
+    else:
+        print("Error: Sorry only RFBNet300 and RFBNet512 are supported!")
+        return
     return layers
 
-
-def multibox(vgg, extra_layers, cfg, num_classes):
+def multibox(size, vgg, extra_layers, cfg, num_classes):
     loc_layers = []
     conf_layers = []
-    vgg_source = [21, -2]
+    vgg_source = [-2]
     for k, v in enumerate(vgg_source):
-        loc_layers += [nn.Conv2d(vgg[v].out_channels,
+        if k == 0:
+            loc_layers += [nn.Conv2d(512,
                                  cfg[k] * 4, kernel_size=3, padding=1)]
-        conf_layers += [nn.Conv2d(vgg[v].out_channels,
+            conf_layers +=[nn.Conv2d(512,
+                                 cfg[k] * num_classes, kernel_size=3, padding=1)]
+        else:
+            loc_layers += [nn.Conv2d(vgg[v].out_channels,
+                                 cfg[k] * 4, kernel_size=3, padding=1)]
+            conf_layers += [nn.Conv2d(vgg[v].out_channels,
                         cfg[k] * num_classes, kernel_size=3, padding=1)]
-    for k, v in enumerate(extra_layers[1::2], 2):
-        loc_layers += [nn.Conv2d(v.out_channels, cfg[k]
+    i = 1
+    indicator = 0
+    if size == 300:
+        indicator = 3
+    elif size == 512:
+        indicator = 5
+    else:
+        print("Error: Sorry only RFBNet300 and RFBNet512 are supported!")
+        return
+
+    for k, v in enumerate(extra_layers):
+        if k < indicator or k%2== 0:
+            loc_layers += [nn.Conv2d(v.out_channels, cfg[i]
                                  * 4, kernel_size=3, padding=1)]
-        conf_layers += [nn.Conv2d(v.out_channels, cfg[k]
+            conf_layers += [nn.Conv2d(v.out_channels, cfg[i]
                                   * num_classes, kernel_size=3, padding=1)]
+            i +=1
     return vgg, extra_layers, (loc_layers, conf_layers)
 
 
@@ -294,11 +330,11 @@ base = {
     '512': [],
 }
 extras = {
-    '300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
+    '300': [1024, 'S', 512, 'S', 256],
     '512': [],
 }
 mbox = {
-    '300': [4, 6, 6, 6, 4, 4],  # number of boxes per feature map location
+    '300': [6, 6, 6, 6, 4, 4],  # number of boxes per feature map location
     '512': [],
 }
 
@@ -311,7 +347,7 @@ def build_net(phase, size=300, num_classes=21):
         print("ERROR: You specified size " + repr(size) + ". However, " +
               "currently only SSD300 (size=300) is supported!")
         return
-    base_, extras_, head_ = multibox(vgg(base[str(size)], 3),
-                                     add_extras(extras[str(size)], 1024),
+    base_, extras_, head_ = multibox(size, vgg(base[str(size)], 3),
+                                     add_extras(size, extras[str(size)], 1024),
                                      mbox[str(size)], num_classes)
-    return RFBSSD(phase, size, base_, extras_, head_, num_classes)
+    return RFBNet(phase, size, base_, extras_, head_, num_classes)

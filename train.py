@@ -1,7 +1,7 @@
 from data import *
 from utils.augmentations import SSDAugmentation, TT100KAugmentation
 from layers.modules import MultiBoxLoss
-from models import ssd, fusion_ssd
+from models import ssd, fusion_ssd, rfb_ssd
 import os
 import sys
 import time
@@ -24,8 +24,8 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Training With Pytorch')
 train_set = parser.add_mutually_exclusive_group()
-parser.add_argument('--network', default='SSD', choices=['SSD', 'FusionSSD'],
-                    type=str, help='SSD , FusionSSD')
+parser.add_argument('--network', default='SSD', choices=['SSD', 'FusionSSD', 'RFB'],
+                    type=str, help='SSD , FusionSSD, RFB')
 parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO', 'TT100K'],
                     type=str, help='VOC or COCO')
 parser.add_argument('--dataset_root', default=VOC_ROOT,
@@ -97,6 +97,8 @@ def train():
         ssd_net = ssd.build_net('train', cfg['min_dim'], cfg['num_classes'])
     elif args.network == 'FusionSSD':
         ssd_net = fusion_ssd.build_net('train', cfg['min_dim'], cfg['num_classes'])
+    elif args.network == 'RFB':
+        ssd_net = rfb_ssd.build_net('train', cfg['min_dim'], cfg['num_classes'])
 
 
     if args.cuda:
@@ -122,6 +124,8 @@ def train():
         ssd_net.conf.apply(weights_init)
         if args.network == "FusionSSD":
             ssd_net.fusion.apply(weights_init)
+        elif args.network == "RFB":
+            ssd_net.Norm.apply(weights_init)
 
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum,
                           weight_decay=args.weight_decay)
@@ -207,20 +211,20 @@ def xavier(param):
     # init.xavier_uniform_(param)
     init.xavier_normal_(param)
 
+# def weights_init(m):
+#     if isinstance(m, nn.Conv2d):
+#         xavier(m.weight.data)
+#         m.bias.data.zero_()
 
 def weights_init(m):
-    if isinstance(m, nn.Conv2d):
-        xavier(m.weight.data)
-        m.bias.data.zero_()
-# def weights_init(m):
-#     for key in m.state_dict():
-#         if key.split('.')[-1] == 'weight':
-#             if 'conv' in key:
-#                 init.xavier_normal_(m.state_dict()[key])
-#             if 'bn' in key:
-#                 m.state_dict()[key][...] = 1
-#         elif key.split('.')[-1] == 'bias':
-#             m.state_dict()[key][...] = 0
+    for key in m.state_dict():
+        if key.split('.')[-1] == 'weight':
+            if 'conv' in key:
+                init.xavier_normal_(m.state_dict()[key])
+            if 'bn' in key:
+                m.state_dict()[key][...] = 1
+        elif key.split('.')[-1] == 'bias':
+            m.state_dict()[key][...] = 0
 
 
 if __name__ == '__main__':

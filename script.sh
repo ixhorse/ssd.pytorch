@@ -14,7 +14,7 @@ if [ 1 == $FLAG ]
 then
     echo "====train===="
     python train.py \
-        --network="FusionSSD" \
+        --network="RFB" \
         --dataset="VOC" \
         --dataset_root="${VOC_ROOT}" \
         --batch_size=32 \
@@ -35,7 +35,8 @@ elif [ 3 == $FLAG ]
 then
     echo "====eval===="
     python eval.py \
-        --trained_model="weights/ssd300_mAP_77.43_v2.pth" \
+        --network="RFB" \
+        --trained_model="weights/VOC.pth" \
         --voc_root="${VOC_ROOT}" 
 else
     echo "error"
