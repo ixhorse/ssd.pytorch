@@ -14,11 +14,12 @@ if [ 1 == $FLAG ]
 then
     echo "====train===="
     python train.py \
-        --network="RFB" \
-        --dataset="VOC" \
-        --dataset_root="${VOC_ROOT}" \
+        --network="SSD" \
+        --dataset="TT100K" \
+        --dataset_root="${TT100K_ROOT}" \
         --batch_size=32 \
-        --start_iter=0 \
+        --resume="weights/TT100K-100000.pth" \
+        --start_iter=100000 \
         --num_workers=4 \
         --cuda=true \
         --lr=1e-3 \
@@ -30,7 +31,7 @@ then
     python test.py \
         --dataset="TT100K" \
         --dataset_root="${TT100K_ROOT}" \
-        --trained_model="weights/TT100K-z.pth"
+        --trained_model="weights/TT100K.pth"
 elif [ 3 == $FLAG ]
 then
     echo "====eval===="

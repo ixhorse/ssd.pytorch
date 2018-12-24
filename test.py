@@ -16,11 +16,13 @@ from torch.autograd import Variable
 import torch.utils.data as data
 
 from data import *
-from ssd import build_ssd
+from models import ssd, fusion_ssd, rfb_ssd
 
 import pdb
 
 parser = argparse.ArgumentParser(description='Single Shot MultiBox Detection')
+parser.add_argument('--network', default='SSD', choices=['SSD', 'FusionSSD', 'RFB'],
+                    type=str, help='SSD , FusionSSD, RFB')
 parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO', 'TT100K'],
                     type=str, help='VOC, COCO, TT100K')
 parser.add_argument('--dataset_root', default=VOC_ROOT,
@@ -103,8 +105,8 @@ def test_net(net, cuda, testset, labelmap, transform, thresh):
                 pred_score.append(score)
                 pred_label.append(label_name)
                 j += 1
-        _visdetection(img, pred_box, pred_label)
-        cv2.waitKey(0)
+        # _visdetection(img, pred_box, pred_label)
+        # cv2.waitKey(0)
         results[img_id] = {'pred_box': pred_box,
                            'pred_score': pred_score,
                            'pred_label': pred_label}
@@ -122,8 +124,12 @@ def test():
         labelmap = TT100K_CLASSES
         testset = TT100KDetection(args.dataset_root, [('test')], None)
 
-    num_classes = cfg['num_classes'] 
-    net = build_ssd('test', 300, num_classes) # initialize SSD
+    if args.network == 'SSD':
+        net = ssd.build_net('test', cfg['min_dim'], cfg['num_classes'])
+    elif args.network == 'FusionSSD':
+        net = fusion_ssd.build_net('test', cfg['min_dim'], cfg['num_classes'])
+    elif args.network == 'RFB':
+        net = rfb_ssd.build_net('test', cfg['min_dim'], cfg['num_classes'])
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()
     print('Finished loading model!')
