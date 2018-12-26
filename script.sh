@@ -18,8 +18,7 @@ then
         --dataset="TT100K" \
         --dataset_root="${TT100K_ROOT}" \
         --batch_size=32 \
-        --resume="weights/TT100K-100000.pth" \
-        --start_iter=100000 \
+        --start_iter=0 \
         --num_workers=4 \
         --cuda=true \
         --lr=1e-3 \
@@ -29,6 +28,7 @@ elif [ 2 == $FLAG ]
 then
     echo "====test===="
     python test.py \
+        --network="SSD" \
         --dataset="TT100K" \
         --dataset_root="${TT100K_ROOT}" \
         --trained_model="weights/TT100K.pth"

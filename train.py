@@ -151,7 +151,7 @@ def train():
     # create batch iterator
     batch_iterator = iter(data_loader)
     for iteration in range(args.start_iter, cfg['max_iter']):
-
+        t0 = time.time()
         if iteration in cfg['lr_steps']:
             step_index += 1
             adjust_learning_rate(optimizer, args.gamma, step_index)
@@ -171,7 +171,7 @@ def train():
             images = Variable(images)
             targets = [Variable(ann, volatile=True) for ann in targets]
         # forward
-        t0 = time.time()
+        t1 = time.time()
         out = net(images)
         # backprop
         optimizer.zero_grad()
@@ -179,12 +179,12 @@ def train():
         loss = loss_l + loss_c
         loss.backward()
         optimizer.step()
-        t1 = time.time()
+        t2 = time.time()
         # if loss_l.dim() == 0:
         #     pdb.set_trace()
 
         if iteration % 10 == 0:
-            print('timer: %.4f sec.' % (t1 - t0))
+            print('|| data: %.4f ,net: %.4f.' % ((t1 - t0), (t2 - t1)))
             print('iter ' + repr(iteration) + ' || loc_l: %.4f || conf_l: %.4f' \
                     % (loss_l.item(), loss_c.item()), end=' ')
 
